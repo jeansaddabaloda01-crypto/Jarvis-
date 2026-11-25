@@ -47,12 +47,60 @@ const input = document.getElementById('cmd');
 const micBtn = document.getElementById('mic');
 const langBtn = document.getElementById('langBtn');
 
-let LANG = 'en-IN';
+const LANGS = [
+  { code: 'en-IN', label: 'EN' },
+  { code: 'hi-IN', label: 'हिंदी' },
+  { code: 'kn-IN', label: 'ಕನ್ನಡ' }
+];
+let li = 0;
+let LANG = LANGS[0].code;
+
+const MSG = {
+  'en-IN': {
+    hello: 'Hello sir. How can I help you today?',
+    time: 'The time is ',
+    date: 'Today is ',
+    opening: 'Opening ',
+    searching: 'Searching for ',
+    saved: 'Saved: ',
+    noNotes: 'You have no notes.',
+    cleared: 'All notes cleared.',
+    timerHelp: 'Say something like: timer 5 minutes',
+    timerSet: 'Timer set for ',
+    timeUp: 'Time is up!',
+    unknown: 'Sorry, I did not understand. Type help for commands.',
+    noSite: 'I do not know that site yet. Try: ',
+    online: 'Jarvis online. Type help to see what I can do.',
+    help: 'Commands: time, date, open youtube, search something, timer 5 minutes, note something, show notes, clear notes.',
+    langOn: 'English selected.'
+  },
+  'hi-IN': {
+    hello: 'नमस्ते सर। मैं आपकी कैसे मदद कर सकता हूँ?',
+    time: 'अभी समय है ',
+    date: 'आज की तारीख है ',
+    opening: 'खोल रहा हूँ ',
+    searching: 'खोज रहा हूँ ',
+    saved: 'नोट सेव हो गया: ',
+    noNotes: 'आपके कोई नोट नहीं हैं।',
+    cleared: 'सारे नोट हटा दिए गए।',
+    timerHelp: 'ऐसे बोलें: टाइमर 5 मिनट',
+    timerSet: 'टाइमर सेट हो गया: ',
+    timeUp: 'समय पूरा हो गया!',
+    unknown: 'माफ़ कीजिए, मैं समझ नहीं पाया। मदद के लिए "मदद" लिखें।',
+    noSite: 'यह साइट अभी नहीं जानता। ऐसे बोलें: ',
+    online: 'जार्विस चालू है। "मदद" लिखें।',
+    help: 'कमांड: समय, तारीख, खोलो youtube, खोजो कुछ भी, टाइमर 5 मिनट, नोट कुछ भी, नोट्स दिखाओ, नोट्स साफ करो।',
+    langOn: 'हिंदी चुनी गई है।'
+  }
+};
+MSG['kn-IN'] = { ...MSG['en-IN'], langOn: 'ಕನ್ನಡ ಆಯ್ಕೆ ಮಾಡಲಾಗಿದೆ.' };
+
 langBtn.onclick = () => {
-  LANG = LANG === 'en-IN' ? 'kn-IN' : 'en-IN';
-  langBtn.textContent = LANG === 'en-IN' ? 'EN' : 'ಕನ್ನಡ';
+  li = (li + 1) % LANGS.length;
+  LANG = LANGS[li].code;
+  langBtn.textContent = LANGS[li].label;
   if (rec) rec.lang = LANG;
-  say(LANG === 'en-IN' ? 'English selected.' : 'ಕನ್ನಡ ಆಯ್ಕೆ ಮಾಡಲಾಗಿದೆ.');
+  say(MSG[LANG].langOn);
 };
 
 function say(text) {
@@ -83,58 +131,78 @@ const sites = {
 };
 
 function handle(raw) {
-  const c = raw.toLowerCase().trim();
+  const M = MSG[LANG];
+  const c = raw.toLowerCase().replace(/[?!.,।]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!c) return;
   addMsg(raw, 'user');
 
-  // Timer first, so "timer 5 minutes" is not read as "time"
-  if (c.startsWith('timer ')) {
-    const m = c.match(/(\d+)\s*(second|sec|minute|min)/);
-    if (!m) return say('Say something like: timer 5 minutes');
-    const isSec = m[2].startsWith('sec');
+  // Matches whole words. Works for Hindi words too, since \b does not work for Devanagari.
+  const has = (...w) => w.some(x => (' ' + c + ' ').includes(' ' + x + ' '));
+
+  // Timer (checked first so "timer" is not read as "time")
+  if (/^(timer|टाइमर)/.test(c)) {
+    const m = c.match(/(\d+)\s*(second|sec|सेकंड|minute|min|मिनट)/);
+    if (!m) return say(M.timerHelp);
+    const isSec = /^(second|sec|सेकंड)/.test(m[2]);
     const secs = isSec ? +m[1] : +m[1] * 60;
-    say('Timer set for ' + m[1] + ' ' + (isSec ? 'seconds' : 'minutes') + '.');
-    setTimeout(() => say('Time is up!'), secs * 1000);
+    const unit = LANG === 'hi-IN' ? (isSec ? 'सेकंड' : 'मिनट') : (isSec ? 'seconds' : 'minutes');
+    say(M.timerSet + m[1] + ' ' + unit);
+    setTimeout(() => say(M.timeUp), secs * 1000);
     return;
   }
-  if (/\b(hi|hello|hey|namaste|jarvis)\b/.test(c)) {
-    return say('Hello sir. How can I help you today?');
+
+  // Notes
+  if (c === 'show notes' || c === 'my notes' || c.includes('नोट्स दिखाओ') || c.includes('नोट्स बताओ')) {
+    const notes = JSON.parse(localStorage.getItem('notes') || '[]');
+    return say(notes.length ? notes.map((n, i) => (i + 1) + '. ' + n).join('\n') : M.noNotes);
   }
-  if (/\btime\b/.test(c)) {
-    return say('The time is ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
+  if (c === 'clear notes' || c.includes('नोट्स साफ')) {
+    localStorage.removeItem('notes');
+    return say(M.cleared);
   }
-  if (/\b(date|today)\b/.test(c)) {
-    return say('Today is ' + new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
-  }
-  if (c.startsWith('open ')) {
-    const name = c.slice(5).trim();
-    if (sites[name]) { window.open(sites[name], '_blank'); return say('Opening ' + name); }
-    return say('I do not know ' + name + ' yet. Try: ' + Object.keys(sites).join(', '));
-  }
-  if (c.startsWith('search ') || c.startsWith('google ')) {
-    const q = c.replace(/^(search|google) /, '');
-    window.open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank');
-    return say('Searching for ' + q);
-  }
-  if (c.startsWith('remind me to ') || c.startsWith('note ')) {
-    const note = c.replace(/^(remind me to |note )/, '');
+  if (/^(note|remind me to|नोट|याद रखो)\s/.test(c)) {
+    const note = c.replace(/^(note|remind me to|नोट|याद रखो)\s+/, '');
     const notes = JSON.parse(localStorage.getItem('notes') || '[]');
     notes.push(note);
     localStorage.setItem('notes', JSON.stringify(notes));
-    return say('Saved: ' + note);
+    return say(M.saved + note);
   }
-  if (c === 'show notes' || c === 'my notes') {
-    const notes = JSON.parse(localStorage.getItem('notes') || '[]');
-    return say(notes.length ? notes.map((n, i) => (i + 1) + '. ' + n).join('\n') : 'You have no notes.');
+
+  // Greeting
+  if (has('hi', 'hello', 'hey', 'namaste', 'jarvis', 'नमस्ते', 'नमस्कार', 'हैलो', 'हाय')) {
+    return say(M.hello);
   }
-  if (c === 'clear notes') {
-    localStorage.removeItem('notes');
-    return say('All notes cleared.');
+
+  // Time and date
+  if (has('time', 'समय', 'टाइम', 'बजे')) {
+    return say(M.time + new Date().toLocaleTimeString(LANG, { hour: '2-digit', minute: '2-digit' }));
   }
-  if (c === 'help') {
-    return say('Commands:\n- time, date\n- open youtube (or whatsapp, instagram, gmail, maps)\n- search something\n- timer 5 minutes\n- note something\n- show notes, clear notes');
+  if (has('date', 'today', 'तारीख', 'आज', 'दिनांक')) {
+    return say(M.date + new Date().toLocaleDateString(LANG, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
   }
-  say('Sorry, I did not understand. Type help for commands.');
+
+  // Open a site (works as "open youtube" or "youtube खोलो")
+  const om = c.match(/^(?:open|खोलो|खोल)\s+(.+)$/) || c.match(/^(.+?)\s+(?:खोलो|खोल|open)$/);
+  if (om) {
+    const name = om[1].trim();
+    if (sites[name]) {
+      window.open(sites[name], '_blank');
+      return say(M.opening + name);
+    }
+    return say(M.noSite + Object.keys(sites).join(', '));
+  }
+
+  // Search (works as "search cats" or "बिल्लियाँ खोजो")
+  const sm = c.match(/^(?:search|google|खोजो|सर्च)\s+(.+)$/) || c.match(/^(.+?)\s+(?:खोजो|सर्च|search)$/);
+  if (sm) {
+    const q = sm[1].trim();
+    window.open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank');
+    return say(M.searching + q);
+  }
+
+  if (has('help', 'मदद')) return say(M.help);
+
+  say(M.unknown);
 }
 
 document.getElementById('send').onclick = () => { handle(input.value); input.value = ''; };
@@ -150,14 +218,18 @@ if (SR) {
   rec.onresult = e => handle(e.results[0][0].transcript);
   rec.onend = () => micBtn.classList.remove('listening');
   rec.onerror = () => micBtn.classList.remove('listening');
-  micBtn.onclick = () => { micBtn.classList.add('listening'); rec.lang = LANG; rec.start(); };
+  micBtn.onclick = () => {
+    micBtn.classList.add('listening');
+    rec.lang = LANG;
+    try { rec.start(); } catch (e) {}
+  };
 } else {
-  micBtn.onclick = () => say('Voice input needs Chrome on Android.');
+  micBtn.onclick = () => say(LANG === 'hi-IN' ? 'वॉइस के लिए Chrome चाहिए।' : 'Voice input needs Chrome on Android.');
 }
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
-say('Jarvis online. Type help to see what I can do.');
+say(MSG[LANG].online);
 </script>
 </body>
 </html>
